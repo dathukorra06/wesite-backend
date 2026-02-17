@@ -6,81 +6,105 @@ const dotenv = require('dotenv');
 const connectDB = require('./config/database');
 const { errorHandler } = require('./middleware/errorHandler');
 
-// Load env vars
+// Load env variables
 dotenv.config();
 
-// Debug: Log environment variables
-console.log('Environment variables loaded:');
-console.log('MONGODB_URI:', process.env.MONGODB_URI ? '[REDACTED]' : 'undefined');
-console.log('NODE_ENV:', process.env.NODE_ENV);
-console.log('PORT:', process.env.PORT);
-
-// Connect to database
+// Connect to MongoDB
 connectDB();
 
 const app = express();
 
-// Security middleware
+/* =========================
+   SECURITY MIDDLEWARE
+========================= */
 app.use(helmet());
 
-// Rate limiting
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW || 15) * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX || 100), // limit each IP to 100 requests per windowMs
+  windowMs: (process.env.RATE_LIMIT_WINDOW || 15) * 60 * 1000,
+  max: process.env.RATE_LIMIT_MAX || 100,
   message: {
     success: false,
-    message: 'Too many requests from this IP, please try again later'
+    message: 'Too many requests. Please try again later.'
   }
 });
 app.use(limiter);
 
-// CORS configuration
+/* =========================
+   CORS
+========================= */
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: process.env.CLIENT_URL || '*',
   credentials: true
 }));
 
-// Body parser middleware
+/* =========================
+   BODY PARSER
+========================= */
 app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
-// Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/tasks', require('./routes/tasks'));
-
-// Health check route
-app.get('/api/health', (req, res) => {
+/* =========================
+   ROOT ROUTE (Fix for Vercel)
+========================= */
+app.get('/', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Server is running',
-    timestamp: new Date().toISOString()
+    message: 'Backend is running 🚀',
+    api: {
+      auth: '/api/auth',
+      tasks: '/api/tasks',
+      health: '/api/health'
+    }
   });
 });
 
-// Handle 404
-app.use('*', (req, res) => {
+/* =========================
+   API ROUTES
+========================= */
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/tasks', require('./routes/tasks'));
+
+/* =========================
+   HEALTH CHECK
+========================= */
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Server is healthy',
+    time: new Date().toISOString()
+  });
+});
+
+/* =========================
+   404 HANDLER
+========================= */
+app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: 'Route not found'
   });
 });
 
-// Error handler middleware (should be last)
+/* =========================
+   ERROR HANDLER
+========================= */
 app.use(errorHandler);
 
+/* =========================
+   SERVER START
+========================= */
 const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err, promise) => {
-  console.log(`Error: ${err.message}`);
-  // Close server & exit process
-  server.close(() => {
-    process.exit(1);
-  });
+/* =========================
+   CRASH PROTECTION
+========================= */
+process.on('unhandledRejection', err => {
+  console.error('Unhandled rejection:', err.message);
+  server.close(() => process.exit(1));
 });
 
 module.exports = app;
